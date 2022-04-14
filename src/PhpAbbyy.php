@@ -14,12 +14,27 @@ class Abbyy
         'pdf' => 'html-conversion',
     );
 
-    public function __construct()
+    // Response object
+    private $responseObject = [
+        'data' => [
+            'taskId' => '',
+            'filePath' => '',
+            'relatedFiles' => [],
+            'status' => ''
+        ],
+        'errors' => []
+    ];
+
+    private $outputDir;
+
+
+    public function __construct($outputDir = 'alternates')
     {
         $this->client = HttpClient::create([
             'base_uri' => $_ENV['ABBYY_DOMAIN'],
         ]);
         $this->filetype = null;
+        $this->outputDir = $outputDir;
     }
 
     public function convertFile($options)
@@ -33,58 +48,71 @@ class Abbyy
             ]
         ];
 
-        $response = $this->client->request('POST', '/FineReaderServer14/api/workflows/'. $this->workflows[$this->filetype] . '/input/file' , $postOptions);
+        $response = $this->client->request('POST', "/FineReaderServer14/api/workflows/{$this->workflows[$this->filetype]}/input/file" , $postOptions);
         if($response->getStatusCode() === Response::HTTP_CREATED) {
-            return trim($response->getContent(false),"\"");;
+            $this->responseObject['data']['taskId'] = trim($response->getContent(false),"\"");
         } else {
-            return null;
+            $this->responseObject['errors'][] = "Abby Failed to create the file";
         }
+        return $this->responseObject;
 
     }
 
     public function isReady($jobId)
     {
 
-        $response = $this->client->request('GET', '/FineReaderServer14/api/jobs/' . $jobId);
+        $response = $this->client->request('GET', "/FineReaderServer14/api/jobs/{$jobId}");
         $contentStr = $response->getContent(false);
         $jobStatus= \json_decode($contentStr, true);
         if($jobStatus['State'] === "JS_Complete"){
-            return true;
+            $this->responseObject['data']['status'] = true;
         }else {
-            return false;
+            $this->responseObject['data']['status'] = false;
         }
+        return $this->responseObject;
 
     }
 
     public function getFileUrl($jobId)
     {
 
-        $response = $this->client->request('GET', '/FineReaderServer14/api/jobs/' . $jobId . '/result/files');
+        $response = $this->client->request('GET', "/FineReaderServer14/api/jobs/{$jobId}/result/files");
 
         if($response->getStatusCode() === Response::HTTP_OK)
         {
             $contentStr = $response->getContent(false);
-            file_put_contents($jobId . '.zip', $contentStr);
-            $files = $this->unZipFile($jobId . '.zip');
-            unlink($jobId . '.zip');
+            $path = getcwd() . '/' . $this->outputDir;
+            if(!is_dir($path)){
+                mkdir($path,0755);
+            }
+            $filePath = $path . '/' . $jobId . '.zip';
+            file_put_contents($filePath, $contentStr);
+            $files = $this->unZipFile($filePath);
+            unlink($filePath);
             if(!empty($files)) {
                 $this->deleteConvertedFileFromAbby($jobId);
-                return $files;
+                $fileLocationIndex = array_key_first(preg_grep('/.*htm/',$files));
+                $filePath = array_splice($files,$fileLocationIndex,1);
+                $this->responseObject['data']['filePath'] = $filePath[0];
+                $this->responseObject['data']['relatedFiles'] = $files;
             }
             else {
-                return null;
+                $this->responseObject['errors'][] = "No files found from zip from taskId: {$jobId}";
             }
+        }else{
+            $this->responseObject['errors'][] = "Status code was not HTTP_OK 200 : {$jobId}";
         }
 
-        return null;
+        return $this->responseObject;
     }
 
     protected function deleteConvertedFileFromAbby($jobId)
     {
-        $response = $this->client->request('DELETE', '/FineReaderServer14/api/jobs/' . $jobId);
+        $response = $this->client->request('DELETE', "/FineReaderServer14/api/jobs/{$jobId}");
         if($response->getStatusCode() === Response::HTTP_NO_CONTENT) {
             return true;
         } else {
+            $this->responseObject['errors'][] = "Could not delete file from Abby Server TaskId: {$jobId}";
             return false;
         }
     }
@@ -112,12 +140,12 @@ class Abbyy
             $zip->close();
             echo "files extracted to $path";
         } else {
-            echo "couldn't open file";
+            $this->responseObject['errors'][] = "couldn't open file";
         }
 
         foreach ($fileNames as $i => $file)
         {
-            if(!file_exists($file)){
+            if(!file_exists($path . '/' . $file)){
                 echo 'file does not exist';
                 unset($fileNames[$i]);
             }
@@ -130,11 +158,10 @@ class Abbyy
 
         if (file_exists($fileUrl)) {
             unlink($fileUrl);
-            return true;
         } else {
-            print("File not found");
-            return false;
+            $this->responseObject['errors'][] = "File not found";
         }
+        return $this->responseObject;
     }
 
 
