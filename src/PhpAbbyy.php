@@ -10,9 +10,21 @@ class PhpAbbyy
 {
     private $client;
     private $filetype;
+    private $format;
     private $workflows = array(
-        'pdf' => 'html-conversion',
+        'html' => 'html-conversion',
+        'txt' => 'txt-conversion',
+        'epub' => 'epub-conversion',
     );
+
+    //Map file endings, this is a special case just for abbyy outputting html as htm
+    private $file_endings = array(
+        'html' => 'htm',
+        'txt' => 'txt',
+        'epub' => 'epub',
+    );
+
+
     private $apiPath = '/FineReaderServer14/api';
 
     // Response object
@@ -35,10 +47,11 @@ class PhpAbbyy
             'base_uri' => $_ENV['ABBYY_DOMAIN'],
         ]);
         $this->filetype = null;
+        $this->format = null;
         $this->outputDir = $outputDir;
     }
 
-    public function getPostOptions($options) 
+    public function getPostOptions($options)
     {
         return [
             'json' => [
@@ -50,12 +63,14 @@ class PhpAbbyy
 
     public function convertFile($options)
     {
+
+        $this->format = strtolower($options['format']);
         $this->filetype = strtolower($options['fileType']);
 
         $postOptions = $this->getPostOptions($options);
 
-        $response = $this->client->request('POST', "{$this->apiPath}/workflows/{$this->workflows[$this->filetype]}/input/file" , $postOptions);
-        
+        $response = $this->client->request('POST', "{$this->apiPath}/workflows/{$this->workflows[$this->format]}/input/file" , $postOptions);
+
         if ($response->getStatusCode() === Response::HTTP_CREATED) {
             $this->responseObject['data']['taskId'] = trim($response->getContent(false),"\"");
         } else {
@@ -70,7 +85,7 @@ class PhpAbbyy
         $response = $this->client->request('GET', "{$this->apiPath}/jobs/{$jobId}");
         $contentStr = $response->getContent(false);
         $jobStatus= \json_decode($contentStr, true);
-        
+
         return ($jobStatus['State'] === "JS_Complete");
     }
 
@@ -91,7 +106,7 @@ class PhpAbbyy
             unlink($filePath);
             if (!empty($files)) {
                 $this->deleteConvertedFileFromAbby($jobId);
-                $fileLocationIndex = array_key_first(preg_grep('/.*htm/',$files));
+                $fileLocationIndex = array_key_first(preg_grep("/.*{$this->file_endings[$this->format]}/",$files));
                 $filePath = array_splice($files,$fileLocationIndex,1);
                 $this->responseObject['data']['filePath'] = $filePath[0];
                 $this->responseObject['data']['relatedFiles'] = $files;
@@ -109,7 +124,7 @@ class PhpAbbyy
     protected function deleteConvertedFileFromAbby($jobId)
     {
         $response = $this->client->request('DELETE', "{$this->apiPath}/jobs/{$jobId}");
-        
+
         return ($response->getStatusCode() === Response::HTTP_NO_CONTENT);
     }
 
