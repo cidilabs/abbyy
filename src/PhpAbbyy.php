@@ -9,8 +9,6 @@ use ZipArchive;
 class PhpAbbyy
 {
     private $client;
-    private $filetype;
-    private $format;
     private $workflows = array(
         'html' => 'html-conversion',
         'txt' => 'txt-conversion',
@@ -18,10 +16,12 @@ class PhpAbbyy
     );
 
     //Map file endings, this is a special case just for abbyy outputting html as htm
-    private $file_endings = array(
+    private $fileEndings = array(
         'html' => 'htm',
         'txt' => 'txt',
         'epub' => 'epub',
+        'doc' => 'docx',
+        'pdf' => 'pdf',
     );
 
 
@@ -46,9 +46,15 @@ class PhpAbbyy
         $this->client = HttpClient::create([
             'base_uri' => $_ENV['ABBYY_DOMAIN'],
         ]);
-        $this->filetype = null;
-        $this->format = null;
         $this->outputDir = $outputDir;
+    }
+
+    public function supports()
+    {
+        return [
+            'input' => ['pdf', 'doc'],
+            'output' => ['html', 'pdf', 'epub']
+        ];
     }
 
     public function getPostOptions($options)
@@ -63,55 +69,59 @@ class PhpAbbyy
 
     public function convertFile($options)
     {
-
-        $this->format = strtolower($options['format']);
-        $this->filetype = strtolower($options['fileType']);
-
+        $format = strtolower($options['format']);
         $postOptions = $this->getPostOptions($options);
 
-        $response = $this->client->request('POST', "{$this->apiPath}/workflows/{$this->workflows[$this->format]}/input/file" , $postOptions);
+        $response = $this->client->request('POST', "{$this->apiPath}/workflows/{$this->workflows[$format]}/input/file", $postOptions);
 
         if ($response->getStatusCode() === Response::HTTP_CREATED) {
-            $this->responseObject['data']['taskId'] = trim($response->getContent(false),"\"");
+            $this->responseObject['data']['taskId'] = trim($response->getContent(false), "\"");
         } else {
             $this->responseObject['errors'][] = "Abby Failed to create the file";
         }
         return $this->responseObject;
-
     }
 
     public function isReady($jobId): bool
     {
         $response = $this->client->request('GET', "{$this->apiPath}/jobs/{$jobId}");
         $contentStr = $response->getContent(false);
-        $jobStatus= \json_decode($contentStr, true);
+        $jobStatus = \json_decode($contentStr, true);
 
         return ($jobStatus['State'] === "JS_Complete");
     }
 
-    public function getFileUrl($jobId)
+    public function getFileUrl($jobId, $options = [])
     {
         $response = $this->client->request('GET', "{$this->apiPath}/jobs/{$jobId}/result/files");
+        $inputExt = isset($options['input']) ? $options['input'] : 'pdf';
+        $outputExt = isset($options['output']) ? $options['output'] : 'html';
 
-        if ($response->getStatusCode() === Response::HTTP_OK)
-        {
+        if ($response->getStatusCode() === Response::HTTP_OK) {
             $contentStr = $response->getContent(false);
             $path = getcwd() . '/' . $this->outputDir;
-            if (!is_dir($path)){
-                mkdir($path,0755);
+            if (!is_dir($path)) {
+                mkdir($path, 0755);
             }
-            $filePath = $path . '/' . $jobId . '.zip';
-            file_put_contents($filePath, $contentStr);
-            $files = $this->unZipFile($filePath);
-            unlink($filePath);
-            if (!empty($files)) {
+            $archivePath = $path . '/' . $jobId . '.zip';
+            file_put_contents($archivePath, $contentStr);
+            $files = $this->unZipFile($archivePath);
+
+            foreach ($files as $file) {
+                if (str_ends_with($file, $this->fileEndings[$outputExt])) {
+                    $this->responseObject['data']['filePath'] = $file;
+                } else if (str_ends_with($file, $this->fileEndings[$inputExt])) {
+                    unlink($file);
+                    continue;
+                } else {
+                    $this->responseObject['data']['relatedFiles'][] = $file;
+                }
+            }
+
+            if (!empty($this->responseObject['data']['filePath'])) {
                 $this->deleteConvertedFileFromAbby($jobId);
-                $fileLocationIndex = array_key_first(preg_grep("/.*{$this->file_endings[$this->format]}/",$files));
-                $filePath = array_splice($files,$fileLocationIndex,1);
-                $this->responseObject['data']['filePath'] = $filePath[0];
-                $this->responseObject['data']['relatedFiles'] = $files;
-            }
-            else {
+                unlink($archivePath);
+            } else {
                 $this->responseObject['errors'][] = "No files found from zip from taskId: {$jobId}";
             }
         } else {
@@ -130,37 +140,37 @@ class PhpAbbyy
 
     private function unZipFile($fileUrl)
     {
-        $fileNames = [];
+        $fileNames = $filePaths = [];
         $path = pathinfo(realpath($fileUrl), PATHINFO_DIRNAME);
 
         $zip = new ZipArchive;
         $res = $zip->open($fileUrl);
 
         if ($res === TRUE) {
-            // filter out the file that we send to be converted
-            for($i = 0; $i < $zip->numFiles; $i++) {
-                if ($this->getFileTypeEnding($zip->getNameIndex($i)) !== $this->filetype) {
-                    $fileNames[] = $zip->getNameIndex($i);
-                }
+            for ($i = 0; $i < $zip->numFiles; $i++) {
+                $fileNames[] = $zip->getNameIndex($i);
             }
 
             // extract it to the path we determined above
-            $zip->extractTo($path,$fileNames);
+            $zip->extractTo($path, $fileNames);
             $zip->close();
         } else {
             $this->responseObject['errors'][] = "couldn't open file";
         }
 
         foreach ($fileNames as $i => $file) {
-            if (!file_exists($path . '/' . $file)) {
-                unset($fileNames[$i]);
+            $filePath = $path . '/' . $file;
+
+            if (file_exists($filePath)) {
+                $filePaths[] = $filePath;
             }
         }
 
-        return $fileNames;
+        return $filePaths;
     }
 
-    public function deleteFile($fileUrl) {
+    public function deleteFile($fileUrl)
+    {
 
         if (file_exists($fileUrl)) {
             unlink($fileUrl);
@@ -169,11 +179,4 @@ class PhpAbbyy
         }
         return $this->responseObject;
     }
-
-
-    private function getFileTypeEnding($fileString)
-    {
-        return substr(strrchr(strtolower($fileString), '.'), 1);
-    }
-
 }
