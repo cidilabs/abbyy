@@ -13,6 +13,7 @@ class PhpAbbyy
         'html' => 'html-conversion',
         'txt' => 'txt-conversion',
         'epub' => 'epub-conversion',
+        'pdf' => 'pdf-conversion',
     );
 
     //Map file endings, this is a special case just for abbyy outputting html as htm
