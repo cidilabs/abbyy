@@ -56,7 +56,7 @@ class PhpAbbyy
     {
         return [
             'input' => ['pdf', 'doc'],
-            'output' => ['html', 'pdf', 'epub']
+            'output' => ['html', 'pdf', 'epub', 'txt']
         ];
     }
 
