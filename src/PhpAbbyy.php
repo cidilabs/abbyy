@@ -151,6 +151,7 @@ class PhpAbbyy
     {
         $response = $this->client->request('DELETE', "{$this->apiPath}/jobs/{$jobId}");
         
+        return ($response->getStatusCode() === Response::HTTP_NO_CONTENT);
     }
 
     private function getErrorsFromAbby($jobId)
