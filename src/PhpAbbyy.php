@@ -22,8 +22,13 @@ class PhpAbbyy
         'html' => 'htm',
         'txt' => 'txt',
         'epub' => 'epub',
-        'doc' => 'docx',
+        'doc' => 'doc',
+        'docx' => 'docx',
         'pdf' => 'pdf',
+        'ppt' => 'ppt',
+        'pptx' => 'pptx',
+        'xls' => 'xls',
+        'xlsx' => 'xlsx'
     );
 
 
@@ -55,7 +60,7 @@ class PhpAbbyy
     public function supports()
     {
         return [
-            'input' => ['pdf', 'doc'],
+            'input' => ['pdf', 'doc', 'docx','xls','xlsx','ppt','pptx'],
             'output' => ['html', 'pdf', 'epub', 'txt']
         ];
     }
