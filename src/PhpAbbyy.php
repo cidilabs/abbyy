@@ -88,8 +88,7 @@ class PhpAbbyy
     public function isReady($jobId): bool
     {
         $response = $this->client->request('GET', "{$this->apiPath}/jobs/{$jobId}");
-        $contentStr = $response->getContent(false);
-        $jobStatus = \json_decode($contentStr, true);
+        $jobStatus = $response->toArray();
 
         return ($jobStatus['State'] === "JS_Complete");
     }
@@ -100,7 +99,11 @@ class PhpAbbyy
         $inputExt = isset($options['input']) ? $options['input'] : 'pdf';
         $outputExt = isset($options['output']) ? $options['output'] : 'html';
 
-        if ($response->getStatusCode() === Response::HTTP_OK) {
+        
+        if ($response->getStatusCode() === Response::HTTP_OK ) {
+            if($this->getErrorsFromAbby($jobId)){
+                return $this->responseObject;
+            }
             $contentStr = $response->getContent(false);
             $this->path = getcwd() . '/' . $this->outputDir;
             if (!is_dir($this->path)) {
@@ -147,8 +150,22 @@ class PhpAbbyy
     protected function deleteConvertedFileFromAbby($jobId)
     {
         $response = $this->client->request('DELETE', "{$this->apiPath}/jobs/{$jobId}");
-
+        
         return ($response->getStatusCode() === Response::HTTP_NO_CONTENT);
+    }
+
+    private function getErrorsFromAbby($jobId)
+    {
+        $response = $this->client->request('GET', "{$this->apiPath}/jobs/{$jobId}/result");
+        $content = $response->toArray();
+
+        if($content['Messages'][0]['Type'] === "JMT_Error")
+        {
+            $this->responseObject['errors'][] = $content['Messages'][0]['UnicodeStr'];
+            return true;
+        }
+
+        return false;
     }
 
     private function AttachPicturesToFileBase64($file)
