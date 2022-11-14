@@ -164,7 +164,7 @@ class PhpAbbyy
         $response = $this->client->request('GET', "{$this->apiPath}/jobs/{$jobId}/result");
         $content = $response->toArray();
 
-        if($content['Messages'][0]['Type'] === "JMT_Error")
+        if($content['Messages'] && $content['Messages'][0]['Type'] === "JMT_Error")
         {
             $this->responseObject['errors'][] = $content['Messages'][0]['UnicodeStr'];
             return true;
