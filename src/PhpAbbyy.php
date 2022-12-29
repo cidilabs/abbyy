@@ -130,15 +130,6 @@ class PhpAbbyy
                 }
             }
 
-            if($this->fileEndings[$outputExt] == 'htm' && !empty($this->responseObject['data']['filePath'])){
-                $this->AttachPicturesToFileBase64($this->responseObject['data']['filePath']);
-            }
-
-            foreach ($this->responseObject['data']['relatedFiles'] as $file) {
-                unlink($file);
-            }
-            $this->responseObject['data']['relatedFiles'] = [];
-
             if (!empty($this->responseObject['data']['filePath'])) {
                 $this->deleteConvertedFileFromAbby($jobId);
                 unlink($archivePath);
